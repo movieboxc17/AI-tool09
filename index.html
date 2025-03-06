@@ -60,6 +60,19 @@
         </div>
     </div>
 
+    <!-- Calibration overlay -->
+    <div id="calibrationOverlay" class="overlay hidden">
+        <div class="overlay-content">
+            <h2>Calibration</h2>
+            <p>Place a credit card (8.56cm x 5.40cm) in view of the camera.</p>
+            <p>Make sure all 4 corners are visible and the card is fully in frame.</p>
+            <div class="overlay-buttons">
+                <button id="calibrateConfirmBtn">Confirm</button>
+                <button id="calibrateCancelBtn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Load OpenCV.js -->
     <script async src="https://docs.opencv.org/master/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
     <script src="script.js"></script>
