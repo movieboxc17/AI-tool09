@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Woodwork Measurement Tool</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Woodworking Measurement Tool</h1>
+        
+        <div class="video-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+            <div id="measurements" class="measurements"></div>
+        </div>
+        
+        <div class="controls">
+            <button id="calibrateBtn">Calibrate</button>
+            <button id="measureBtn">Measure</button>
+            <button id="resetBtn">Reset</button>
+            
+            <div class="measurement-info">
+                <div class="info-row">
+                    <span>Length:</span>
+                    <span id="lengthValue">0.00 cm</span>
+                </div>
+                <div class="info-row">
+                    <span>Width:</span>
+                    <span id="widthValue">0.00 cm</span>
+                </div>
+                <div class="info-row">
+                    <span>Angle:</span>
+                    <span id="angleValue">0.0°</span>
+                </div>
+            </div>
+            
+            <div class="modes">
+                <label>
+                    <input type="radio" name="mode" value="measure" checked>
+                    Measure
+                </label>
+                <label>
+                    <input type="radio" name="mode" value="cut">
+                    Cut Guide
+                </label>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h3>How to use:</h3>
+            <ol>
+                <li>Place a reference object of known size (like a credit card) in view</li>
+                <li>Click "Calibrate" and follow the prompts</li>
+                <li>Place the board you want to measure in view</li>
+                <li>Click "Measure" to show dimensions</li>
+                <li>Use "Cut Guide" mode to mark where to cut</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- Load OpenCV.js -->
+    <script async src="https://docs.opencv.org/master/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+    <script src="script.js"></script>
+</body>
+</html>
