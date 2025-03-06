@@ -9,6 +9,9 @@ let angleValue = document.getElementById('angleValue');
 let calibrateBtn = document.getElementById('calibrateBtn');
 let measureBtn = document.getElementById('measureBtn');
 let resetBtn = document.getElementById('resetBtn');
+let calibrationOverlay = document.getElementById('calibrationOverlay');
+let calibrateConfirmBtn = document.getElementById('calibrateConfirmBtn');
+let calibrateCancelBtn = document.getElementById('calibrateCancelBtn');
 
 // State variables
 let isCalibrated = false;
@@ -17,10 +20,12 @@ let measurementMode = 'measure';
 let isProcessing = false;
 let points = [];
 let boardContour = null;
+let cvLoaded = false;
 
-// Initialize the app when OpenCV is ready
+// OpenCV loading status
 function onOpenCvReady() {
     console.log('OpenCV.js is ready');
+    cvLoaded = true;
     
     // Set up camera
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -41,14 +46,16 @@ function onOpenCvReady() {
             })
             .catch(function(error) {
                 console.error('Error accessing camera:', error);
-                alert('Unable to access camera. Please make sure you have granted permission.');
+                showMessage('Unable to access camera. Please make sure you have granted permission.');
             });
     } else {
-        alert('Your browser does not support camera access.');
+        showMessage('Your browser does not support camera access.');
     }
     
     // Set up event listeners
-    calibrateBtn.addEventListener('click', calibrate);
+    calibrateBtn.addEventListener('click', showCalibrationOverlay);
+    calibrateConfirmBtn.addEventListener('click', performCalibration);
+    calibrateCancelBtn.addEventListener('click', hideCalibrationOverlay);
     measureBtn.addEventListener('click', measure);
     resetBtn.addEventListener('click', reset);
     
@@ -69,7 +76,7 @@ function processVideo() {
         // Draw video frame to canvas
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        if (isProcessing) {
+        if (isProcessing && cvLoaded) {
             try {
                 // Convert canvas to OpenCV format
                 let src = cv.imread(canvas);
@@ -138,6 +145,11 @@ function processVideo() {
                         if (measurementMode === 'cut' && points.length >= 2) {
                             drawCutGuide(src);
                         }
+                        
+                        // Suggest optimal cut if in cut mode
+                        if (measurementMode === 'cut') {
+                            suggestCutPosition(src);
+                        }
                     }
                 }
                 
@@ -180,59 +192,64 @@ function findLargestContour(contours) {
     return maxIndex;
 }
 
-// Calibration function
-function calibrate() {
-    alert('Place a credit card (8.56cm x 5.40cm) in view and click OK');
+// Calibration functions
+function showCalibrationOverlay() {
+    calibrationOverlay.classList.remove('hidden');
+}
+
+function hideCalibrationOverlay() {
+    calibrationOverlay.classList.add('hidden');
+}
+
+function performCalibration() {
     isProcessing = true;
+    hideCalibrationOverlay();
     
-    // Use a timeout to allow the alert to dismiss before capturing
-    setTimeout(() => {
-        let src = cv.imread(canvas);
-        let gray = new cv.Mat();
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    let src = cv.imread(canvas);
+    let gray = new cv.Mat();
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    
+    let blurred = new cv.Mat();
+    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+    
+    let edges = new cv.Mat();
+    cv.Canny(blurred, edges, 50, 150);
+    
+    let contours = new cv.MatVector();
+    let hierarchy = new cv.Mat();
+    cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    
+    // Find the card contour (likely to be rectangle-like)
+    let cardContourIndex = findCardContour(contours);
+    
+    if (cardContourIndex >= 0) {
+        let cardContour = contours.get(cardContourIndex);
+        let rect = cv.boundingRect(cardContour);
         
-        let blurred = new cv.Mat();
-        cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+        // Credit card dimensions in cm (8.56cm x 5.40cm)
+        const cardWidthCm = 8.56;
+        const cardHeightCm = 5.40;
         
-        let edges = new cv.Mat();
-        cv.Canny(blurred, edges, 50, 150);
-        
-        let contours = new cv.MatVector();
-        let hierarchy = new cv.Mat();
-        cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-        
-        // Find the card contour (likely to be rectangle-like)
-        let cardContourIndex = findCardContour(contours);
-        
-        if (cardContourIndex >= 0) {
-            let cardContour = contours.get(cardContourIndex);
-            let rect = cv.boundingRect(cardContour);
-            
-            // Credit card dimensions in cm (8.56cm x 5.40cm)
-            const cardWidthCm = 8.56;
-            const cardHeightCm = 5.40;
-            
-            // Calculate pixels per cm (using the longer side for better accuracy)
-            if (rect.width > rect.height) {
-                pixelsPerCm = rect.width / cardWidthCm;
-            } else {
-                pixelsPerCm = rect.height / cardWidthCm;
-            }
-            
-            isCalibrated = true;
-            alert(`Calibration successful! Scale: ${pixelsPerCm.toFixed(2)} pixels per cm.`);
+        // Calculate pixels per cm (using the longer side for better accuracy)
+        if (rect.width > rect.height) {
+            pixelsPerCm = rect.width / cardWidthCm;
         } else {
-            alert('Could not detect credit card. Please try again with better lighting.');
+            pixelsPerCm = rect.height / cardWidthCm;
         }
         
-        // Clean up
-        src.delete();
-        gray.delete();
-        blurred.delete();
-        edges.delete();
-        contours.delete();
-        hierarchy.delete();
-    }, 500);
+        isCalibrated = true;
+        showMessage(`Calibration successful! Scale: ${pixelsPerCm.toFixed(2)} pixels per cm.`);
+    } else {
+        showMessage('Could not detect credit card. Please try again with better lighting.');
+    }
+    
+    // Clean up
+    src.delete();
+    gray.delete();
+    blurred.delete();
+    edges.delete();
+    contours.delete();
+    hierarchy.delete();
 }
 
 // Find a contour that resembles a credit card
@@ -240,7 +257,7 @@ function findCardContour(contours) {
     let bestIndex = -1;
     let bestScore = Infinity;
     
-     // Credit card aspect ratio is approximately 1.586 (8.56cm / 5.40cm)
+    // Credit card aspect ratio is approximately 1.586 (8.56cm / 5.40cm)
     const targetAspectRatio = 8.56 / 5.40;
     
     for (let i = 0; i < contours.size(); i++) {
@@ -293,7 +310,7 @@ function findCardContour(contours) {
 // Start measuring
 function measure() {
     if (!isCalibrated) {
-        alert('Please calibrate first using a credit card.');
+        showMessage('Please calibrate first using a credit card.');
         return;
     }
     
@@ -314,6 +331,11 @@ function reset() {
     // Clear any drawings on the canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Clear all measurement markers
+    while (measurementsDiv.firstChild) {
+        measurementsDiv.removeChild(measurementsDiv.firstChild);
+    }
 }
 
 // Handle canvas clicks (for marking cut points)
@@ -351,8 +373,8 @@ function handleCanvasClick(event) {
         // Draw the cut line
         drawCutGuide();
         
-        // Alert the user with the measurement
-        alert(`Cut measurement: ${distanceCm.toFixed(2)} cm at ${Math.abs(angleDegrees).toFixed(1)}° angle`);
+        // Show measurement
+        showMessage(`Cut measurement: ${distanceCm.toFixed(2)} cm at ${Math.abs(angleDegrees).toFixed(1)}° angle`);
     }
 }
 
@@ -502,4 +524,190 @@ function suggestCutPosition(src) {
         cv.putText(src, text, new cv.Point(rect.x, rect.y - 50), 
                    cv.FONT_HERSHEY_SIMPLEX, 0.5, new cv.Scalar(0, 255, 255, 255), 2);
     }
+}
+
+// Better message display instead of using alerts
+function showMessage(message) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message-overlay';
+    messageDiv.innerHTML = `
+        <div class="message-content">
+            <p>${message}</p>
+            <button>OK</button>
+        </div>
+    `;
+    
+    document.body.appendChild(messageDiv);
+    
+    // Add button event listener
+    const button = messageDiv.querySelector('button');
+    button.addEventListener('click', () => {
+        document.body.removeChild(messageDiv);
+    });
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        if (document.body.contains(messageDiv)) {
+            document.body.removeChild(messageDiv);
+        }
+    }, 5000);
+}
+
+// Function to check if OpenCV is loaded
+function isOpenCvReady() {
+    return typeof cv !== 'undefined';
+}
+
+// Add loading indicator until OpenCV is ready
+window.addEventListener('load', function() {
+    if (!isOpenCvReady()) {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'opencv-loading';
+        loadingDiv.className = 'message-overlay';
+        loadingDiv.innerHTML = `
+            <div class="message-content">
+                <p>Loading computer vision capabilities...</p>
+                <div class="loading-spinner"></div>
+            </div>
+        `;
+        
+        document.body.appendChild(loadingDiv);
+        
+        // Add CSS for spinner
+        const style = document.createElement('style');
+        style.textContent = `
+            .loading-spinner {
+                border: 4px solid #f3f3f3;
+                border-top: 4px solid #3498db;
+                border-radius: 50%;
+                width: 30px;
+                height: 30px;
+                animation: spin 1s linear infinite;
+                margin: 10px auto;
+            }
+            
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+});
+
+// Handle errors and fallbacks
+window.addEventListener('error', function(event) {
+    console.error('Runtime error:', event.error);
+    
+    if (event.error && event.error.message && event.error.message.includes('OpenCV')) {
+        showMessage('Error loading computer vision capabilities. The app may not work correctly.');
+    }
+});
+
+// Helper function to check if two rectangles are similar in size
+function areRectsNearlySameSize(rect1, rect2, tolerance = 0.2) {
+    const area1 = rect1.width * rect1.height;
+    const area2 = rect2.width * rect2.height;
+    
+    const ratio = area1 > area2 ? area1 / area2 : area2 / area1;
+    
+    return ratio <= (1 + tolerance);
+}
+
+// Function to export measurements
+function exportMeasurements() {
+    if (!isCalibrated || !boardContour) {
+        showMessage('No measurements to export. Please calibrate and measure first.');
+        return;
+    }
+    
+    const rect = cv.boundingRect(boardContour);
+    const lengthCm = rect.width / pixelsPerCm;
+    const widthCm = rect.height / pixelsPerCm;
+    
+    const measurementData = {
+        date: new Date().toISOString(),
+        length: lengthCm.toFixed(2) + ' cm',
+        width: widthCm.toFixed(2) + ' cm',
+        pixelsPerCm: pixelsPerCm.toFixed(2),
+        cutPoints: points.map(p => ({
+            x: (p.x / pixelsPerCm).toFixed(2) + ' cm',
+            y: (p.y / pixelsPerCm).toFixed(2) + ' cm'
+        }))
+    };
+    
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(measurementData, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", "woodwork-measurements.json");
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    document.body.removeChild(downloadAnchor);
+}
+
+// Add function to take a snapshot of the current measurement
+function takeSnapshot() {
+    if (!isCalibrated) {
+        showMessage('Please calibrate first before taking a snapshot.');
+        return;
+    }
+    
+    // Create a new canvas to draw the snapshot
+    const snapshotCanvas = document.createElement('canvas');
+    snapshotCanvas.width = canvas.width;
+    snapshotCanvas.height = canvas.height;
+    const snapshotCtx = snapshotCanvas.getContext('2d');
+    
+    // Draw the current canvas content to the snapshot canvas
+    snapshotCtx.drawImage(canvas, 0, 0);
+    
+    // Add timestamp
+    const now = new Date();
+    const timestamp = `${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
+    snapshotCtx.font = '16px Arial';
+    snapshotCtx.fillStyle = 'white';
+    snapshotCtx.fillRect(10, 10, 300, 30);
+    snapshotCtx.fillStyle = 'black';
+    snapshotCtx.fillText(timestamp, 15, 30);
+    
+    // Create a download link
+    const dataURL = snapshotCanvas.toDataURL('image/png');
+    const downloadLink = document.createElement('a');
+    downloadLink.href = dataURL;
+    downloadLink.download = `woodwork-snapshot-${now.getTime()}.png`;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    
+    showMessage('Snapshot saved.');
+}
+
+// Add helper function to improve rectangle detection
+function findRectangularObjects(contours, minArea = 1000) {
+    const rectangles = [];
+    
+    for (let i = 0; i < contours.size(); i++) {
+        const contour = contours.get(i);
+        const area = cv.contourArea(contour);
+        
+        // Skip small contours
+        if (area < minArea) continue;
+        
+        // Approximate the contour to a polygon
+        const approx = new cv.Mat();
+        cv.approxPolyDP(contour, approx, 0.02 * cv.arcLength(contour, true), true);
+        
+        // If the polygon has 4 vertices, it might be a rectangle
+        if (approx.rows === 4) {
+            // Check if it's convex
+            if (cv.isContourConvex(approx)) {
+                const rect = cv.boundingRect(contour);
+                rectangles.push({ contour: contour, rect: rect });
+            }
+        }
+        
+        approx.delete();
+    }
+    
+    return rectangles;
 }
